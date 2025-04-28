@@ -1268,3 +1268,9 @@ function selectedIndices = nonMaximumSuppression(regionProps, validIndices)
                     end
                 end
             end
+        end
+    end
+    
+    % Return indices of kept boxes
+    selectedIndices = validIndices(order(keep(order)));
+end
