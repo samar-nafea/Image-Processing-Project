@@ -1,0 +1,119 @@
+% Load the image
+img = imread('ay.jpg');
+
+% Manual grayscale conversion
+gray_img = 0.2989 * double(img(:,:,1)) + 0.5870 * double(img(:,:,2)) + 0.1140 * double(img(:,:,3));
+gray_img = uint8(gray_img);
+
+% Manual Gaussian filter
+sigma = 2;
+filter_size = 5;
+half = floor(filter_size/2);
+[x, y] = meshgrid(-half:half, -half:half);
+gaussian_kernel = exp(-(x.^2 + y.^2) / (2 * sigma^2));
+gaussian_kernel = gaussian_kernel / sum(gaussian_kernel(:));
+
+% Apply Gaussian filter
+smoothed_img = zeros(size(gray_img));
+padded = padarray(double(gray_img), [half half], 'replicate');
+for i = 1:size(gray_img, 1)
+    for j = 1:size(gray_img, 2)
+        window = padded(i:i+2*half, j:j+2*half);
+        smoothed_img(i,j) = sum(window .* gaussian_kernel, 'all');
+    end
+end
+
+% Sobel edge detection
+sobel_x = [-1 0 1; -2 0 2; -1 0 1];
+sobel_y = [-1 -2 -1; 0 0 0; 1 2 1];
+
+edge_x = zeros(size(smoothed_img));
+edge_y = zeros(size(smoothed_img));
+padded = padarray(smoothed_img, [1 1], 'replicate');
+
+for i = 1:size(smoothed_img, 1)
+    for j = 1:size(smoothed_img, 2)
+        window = padded(i:i+2, j:j+2);
+        edge_x(i,j) = sum(window .* sobel_x, 'all');
+        edge_y(i,j) = sum(window .* sobel_y, 'all');
+    end
+end
+
+edge_mag = sqrt(edge_x.^2 + edge_y.^2);
+mean_val = mean(edge_mag(:));
+std_val = std(edge_mag(:));
+threshold = mean_val + 0.5 * std_val;
+binary_edges = edge_mag > threshold;
+
+% Manual morphological operations (opening)
+se = ones(3, 3);
+% Erosion
+eroded = zeros(size(binary_edges));
+padded = padarray(binary_edges, [1 1], 0);
+for i = 1:size(binary_edges, 1)
+    for j = 1:size(binary_edges, 2)
+        window = padded(i:i+2, j:j+2);
+        eroded(i,j) = all(window(se == 1));
+    end
+end
+
+% Dilation
+dilated = zeros(size(eroded));
+padded = padarray(eroded, [1 1], 0);
+for i = 1:size(eroded, 1)
+    for j = 1:size(eroded, 2)
+        window = padded(i:i+2, j:j+2);
+        dilated(i,j) = any(window(se == 1));
+    end
+end
+clean_img = dilated;
+
+% Manual connected component labeling
+labeled = zeros(size(clean_img));
+label = 1;
+for i = 1:size(clean_img, 1)
+    for j = 1:size(clean_img, 2)
+        if clean_img(i,j) == 1 && labeled(i,j) == 0
+            % Start flood fill
+            queue = [i, j];
+            while ~isempty(queue)
+                r = queue(1,1);
+                c = queue(1,2);
+                queue(1,:) = [];
+                
+                if r >= 1 && r <= size(clean_img,1) && c >= 1 && c <= size(clean_img,2) && clean_img(r,c) == 1 && labeled(r,c) == 0
+                    labeled(r,c) = label;
+                    % Add neighbors
+                    queue = [queue; r-1, c; r+1, c; r, c-1; r, c+1];
+                end
+            end
+            label = label + 1;
+        end
+    end
+end
+num_objects = label - 1;
+
+% Convert image to double for blending
+img_double = im2double(img);
+
+% Manual label to RGB with original background
+colors = rand(num_objects, 3);
+result_img = img_double; % Start with original image
+
+% Overlay colors on detected objects
+for k = 1:num_objects
+    mask = (labeled == k);
+    for c = 1:3
+        temp = result_img(:,:,c);
+        % Apply semi-transparent overlay (50% object color, 50% original)
+        temp(mask) = 0.5 * colors(k,c) + 0.5 * temp(mask);
+        result_img(:,:,c) = temp;
+    end
+end
+
+% Display results
+figure;
+subplot(1,2,1); imshow(img); title('Original Image');
+subplot(1,2,2); imshow(result_img); title('Detected Objects');
+
+fprintf('Number of objects detected: %d\n', num_objects);
